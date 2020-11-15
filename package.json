@@ -1,0 +1,23 @@
+{
+  "name": "coq-of-ts",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc index.ts",
+    "start": "node index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/clarus/coq-of-ts.git"
+  },
+  "author": "Guillaume Claret",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/clarus/coq-of-ts/issues"
+  },
+  "homepage": "https://github.com/clarus/coq-of-ts#readme",
+  "devDependencies": {
+    "typescript": "^4.0.5"
+  }
+}
