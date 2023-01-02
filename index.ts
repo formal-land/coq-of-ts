@@ -221,16 +221,17 @@ type PlainTypOrRest =
       typ: ts.TypeLiteralNode | ts.UnionTypeNode | ts.StringLiteral
     };
 
-export function* compileIfPlainTyp(
+export function compileIfPlainTyp(
   typ: ts.TypeNode,
 ): PlainTypOrRest {
   if (typ.kind === ts.SyntaxKind.AnyKeyword) {
     return raise(
-      {type: "PlainTyp", typ, unit},
+      {type: "PlainTyp", typ: {type: "Implicit"}},
       typ,
       "The type `any` is not handled",
     );
   }
+
   if (ts.isArrayTypeNode(typ)) {
     return {
       type: "PlainTyp",
@@ -241,6 +242,7 @@ export function* compileIfPlainTyp(
       },
     };
   }
+
   if (typ.kind === ts.SyntaxKind.BooleanKeyword) {
     return {
       type: "PlainTyp",
@@ -251,6 +253,7 @@ export function* compileIfPlainTyp(
       },
     };
   }
+
   if (typ.kind === ts.SyntaxKind.NeverKeyword) {
     return {
       type: "PlainTyp",
@@ -261,6 +264,7 @@ export function* compileIfPlainTyp(
       },
     };
   }
+
   if (ts.isFunctionTypeNode(typ)) {
     return {
       type: "PlainTyp",
@@ -275,6 +279,7 @@ export function* compileIfPlainTyp(
       },
     };
   }
+
   if (ts.isTypeReferenceNode(typ)) {
     return {
       type: "PlainTyp",
@@ -286,113 +291,109 @@ export function* compileIfPlainTyp(
     };
   }
 
-  switch (typ.kind) {
-    case "NullableTypeAnnotation":
-      return {
-        type: "PlainTyp",
-        typ: {
-          type: "Variable",
-          name: "option",
-          params: [compile(typ.typeAnnotation)],
-        },
-      };
-    case "NullLiteralTypeAnnotation":
-      return {
-        type: "PlainTyp",
-        typ: {
-          type: "Variable",
-          name: "unit",
-          params: [],
-        },
-      };
-    case "NumberLiteralTypeAnnotation":
-      return raise<PlainTypOrRest>(
-        typ,
-        "Number literals in types are not handled",
-      );
-    case "NumberTypeAnnotation":
-      return {
-        type: "PlainTyp",
-        typ: {
-          type: "Variable",
-          name: "Z",
-          params: [],
-        },
-      };
-    case "ObjectTypeAnnotation": {
-      if (typ.properties.length === 0) {
-        return {
-          type: "PlainTyp",
-          typ: {
-            type: "Variable",
-            name: "unit",
-            params: [],
-          },
-        };
-      }
+  if (typ.kind === ts.SyntaxKind.NullKeyword) {
+    return {
+      type: "PlainTyp",
+      typ: unit,
+    };
+  }
 
+  if (typ.kind === ts.SyntaxKind.NumberKeyword) {
+    return {
+      type: "PlainTyp",
+      typ: {
+        type: "Variable",
+        name: "Z",
+        params: [],
+      },
+    };
+  }
+
+  if (ts.isTypeLiteralNode(typ)) {
+    if (typ.members.length === 0) {
       return {
-        type: "Rest",
-        typ,
+        type: "PlainTyp",
+        typ: unit,
       };
     }
-    case "StringLiteralTypeAnnotation":
-      return {
-        type: "Rest",
-        typ,
-      };
-    case "StringTypeAnnotation":
-      return {
-        type: "PlainTyp",
-        typ: {
-          type: "Variable",
-          name: "string",
-          params: [],
-        },
-      };
-    case "ThisTypeAnnotation":
-      return raise<PlainTypOrRest>(
-        typ,
-        "The type `this` is not handled",
-      );
-    case "TupleTypeAnnotation":
-      if (typ.types.length === 1) {
-        return raise<PlainTypOrRest>(
-          typ,
-          "Tuple types with exactly one element are not handled",
-        );
-      }
 
-      return {
-        type: "PlainTyp",
-        typ: {
-          type: "Tuple",
-          params: Monad.all(typ.types.map(typ => compile(typ))),
-        },
-      };
-    case "TypeofTypeAnnotation":
-      return raise<PlainTypOrRest>(
+    return {
+      type: "Rest",
+      typ,
+    };
+  }
+
+  if (ts.isStringLiteral(typ)) {
+    return {
+      type: "Rest",
+      typ,
+    };
+  }
+
+  if (typ.kind === ts.SyntaxKind.StringKeyword) {
+    return {
+      type: "PlainTyp",
+      typ: {
+        type: "Variable",
+        name: "string",
+        params: [],
+      },
+    };
+  }
+
+  if (ts.isThisTypeNode(typ)) {
+    return raise(
+      {type: "PlainTyp", typ: unit},
+      typ,
+      "The type `this` is not handled",
+    );
+  }
+
+  if (ts.isTupleTypeNode(typ)) {
+    if (typ.elements.length === 1) {
+      return raise(
+        {type: "PlainTyp", typ: compileTyp(typ.elements[0])},
         typ,
-        "Extracting the type of values with `typeof` is not handled",
+        "Tuple types with exactly one element are not handled",
       );
-    case "UnionTypeAnnotation":
-      return {
+    }
+
+    return {
+      type: "PlainTyp",
+      typ: {
+        type: "Tuple",
+        params: typ.elements.map(typ => compileTyp(typ)),
+      },
+    };
+  }
+
+  if (ts.isTypeQueryNode(typ)) {
+    return raise(
+      {type: "PlainTyp", typ: {type: "Implicit"}},
+      typ,
+      "Extracting the type of values with `typeof` is not handled",
+    );
+  }
+
+  if (ts.isUnionTypeNode(typ)) {
+    return {
         type: "Rest",
         typ,
       };
-    case "VoidTypeAnnotation":
-      return {
-        type: "PlainTyp",
-        typ: {
-          type: "Variable",
-          name: "unit",
-          params: [],
-        },
-      };
-    /* istanbul ignore next */
-    default:
-      return typ;
   }
+
+  if (typ.kind === ts.SyntaxKind.VoidKeyword) {
+    return {
+      type: "PlainTyp",
+      typ: unit,
+    };
+  }
+
+  return raise(
+    {type: "PlainTyp", typ: {type: "Implicit"}},
+    typ,
+    "Unhandled kind of type",
+  );
 }
 
 function compileTyp(typ: ts.TypeNode): Typ {
@@ -439,9 +440,23 @@ function getStringOfLiteralType(typ: ts.TypeNode): string {
   return raise("Unknown", typ, "Expected a string literal type")
 }
 
-function compileSumType(typs: ts.TypeLiteralNode[]): TypDefinition {
+function compileStringEnum(typs: ReadonlyArray<ts.TypeNode>): TypDefinition {
+  const names =
+    typs.map(typ => getStringOfLiteralType(typ));
+
+  return {
+    type: "Enum",
+    names,
+  };
+}
+
+function compileSumType(typs: ReadonlyArray<ts.TypeNode>): TypDefinition {
   const constructors =
     typs.map(typ => {
+      if (!ts.isTypeLiteralNode(typ)) {
+        return raise({name: "NonObject", fields: []}, typ, "Expected an Object type");
+      }
+
       const [nameProperties, fieldProperties] = typ.members.reduce(
         ([nameProperties, fieldProperties], property) => {
           if (ts.isPropertySignature(property)) {
@@ -492,7 +507,7 @@ function compileSumType(typs: ts.TypeLiteralNode[]): TypDefinition {
   };
 }
 
-export function* compileTypDefinition(typ: ts.TypeNode): TypDefinition {
+export function compileTypDefinition(typ: ts.TypeNode): TypDefinition {
   const compiledTyp = compileIfPlainTyp(typ);
 
   switch (compiledTyp.type) {
@@ -501,73 +516,66 @@ export function* compileTypDefinition(typ: ts.TypeNode): TypDefinition {
         type: "Synonym",
         typ: compiledTyp.typ,
       };
-    case "Rest":
-      switch (compiledTyp.typ.kind) {
-        // Object
-        case ts.SyntaxKind.TypeLiteral: {
-          const objectTyp = compiledTyp.typ as ts.TypeLiteralNode;
-          const withATypeField = objectTyp.members.some(property =>
-            ts.isPropertySignature(property) &&
-            ts.isIdentifier(property.name) &&
-            property.name.text === "type"
-          );
+    case "Rest": {
+      // Object
+      if (ts.isTypeLiteralNode(compiledTyp.typ)) {
+        const withATypeField = compiledTyp.typ.members.some(property =>
+          ts.isPropertySignature(property) &&
+          getTextOfIdentifier(property) === "type"
+        );
 
-          if (withATypeField) {
-            return compileSumType([objectTyp]);
-          }
+        if (withATypeField) {
+          return compileSumType([compiledTyp.typ]);
+        }
 
-          const fields = Monad.all(
-            objectTyp.properties.map(function*(property) {
-              if (property.type !== "ObjectTypeProperty") {
-                return raise(property, "Expected named property");
-              }
-
+        const fields =
+          compiledTyp.typ.members.map(property => {
+            if (ts.isPropertySignature(property)) {
               return {
-                name: getObjectTypePropertyName(property),
-                typ: compileTyp(property.value),
+                name: getTextOfIdentifier(property.name),
+                typ: compileTyp(property.type!),
               };
-            }),
-          );
+            }
 
-          return {
-            type: "Record",
-            fields,
-          };
-        }
-        case "StringLiteralTypeAnnotation":
-          return compileStringEnum([compiledTyp.typ]);
-        case "UnionTypeAnnotation": {
-          /* istanbul ignore next */
-          if (compiledTyp.typ.types.length === 0) {
-            return {
-              type: "Synonym",
-              typ: {
-                type: "Variable",
-                name: "Empty_set",
-                params: [],
-              },
-            };
-          }
+            return raise({name: "unknown", typ: unit}, property, "Expected named property");
+          });
 
-          switch (compiledTyp.typ.types[0].type) {
-            case "ObjectTypeAnnotation":
-              return compileSumType(compiledTyp.typ.types);
-            case "StringLiteralTypeAnnotation":
-              return compileStringEnum(compiledTyp.typ.types);
-            default:
-              return raise<t>(
-                compiledTyp.typ,
-                "Only handle unions of strings or objects with a `type` field",
-              );
-          }
-        }
-        /* istanbul ignore next */
-        default:
-          return compiledTyp.typ;
+        return {
+          type: "Record",
+          fields,
+        };
       }
-    /* istanbul ignore next */
+
+      // String
+      if (ts.isLiteralTypeNode(compiledTyp.typ)) {
+        return compileStringEnum([compiledTyp.typ]);
+      }
+
+      if (ts.isUnionTypeNode(compiledTyp.typ)) {
+        // Object
+        if (ts.isTypeLiteralNode(compiledTyp.typ.types[0])) {
+          return compileSumType(compiledTyp.typ.types);
+        }
+
+        // String
+        if (ts.isLiteralTypeNode(compiledTyp.typ.types[0])) {
+          return compileStringEnum(compiledTyp.typ.types);
+        }
+
+        return raise(
+          {type: "Synonym", typ: unit},
+          compiledTyp.typ,
+          "Only handle unions of strings or objects with a `type` field",
+        );
+      }
+    }
     default:
-      return compiledTyp;
+      compiledTyp;
+      return raise(
+        {type: "Synonym", typ: unit},
+        compiledTyp.typ,
+        "Only handle unions of strings or objects with a `type` field",
+      );;
   }
 }
 
