@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc index.ts",
-    "start": "node index.ts"
+    "start": "node index.js",
+    "version": "tsc --version"
   },
   "repository": {
     "type": "git",
@@ -18,6 +19,7 @@
   },
   "homepage": "https://github.com/clarus/coq-of-ts#readme",
   "devDependencies": {
-    "typescript": "^4.0.5"
+    "@types/node": "^18.11.18",
+    "typescript": "^4.9.4"
   }
 }
