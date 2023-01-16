@@ -1,9 +1,11 @@
 import * as ts from "typescript";
+import * as Global from "./global";
 import * as TopLevelStatement from "./top-level-statement";
 
 function compile(fileName: string, options: ts.CompilerOptions): TopLevelStatement.t[] {
   let program = ts.createProgram([fileName], options);
   const sourceFile = program.getSourceFile(fileName);
+  Global.state.typeChecker = program.getTypeChecker();
 
   if (!sourceFile) {
     console.log("Cannot compile");
