@@ -1,6 +1,6 @@
-import * as ts from "typescript";
-import * as Global from "./global";
-import * as TopLevelStatement from "./top-level-statement";
+import * as ts from 'typescript';
+import * as Global from './global';
+import * as TopLevelStatement from './top-level-statement';
 
 function compile(fileName: string, options: ts.CompilerOptions): TopLevelStatement.t[] {
   let program = ts.createProgram([fileName], options);
@@ -8,22 +8,25 @@ function compile(fileName: string, options: ts.CompilerOptions): TopLevelStateme
   Global.state.typeChecker = program.getTypeChecker();
 
   if (!sourceFile) {
-    console.log("Cannot compile");
+    console.log('Cannot compile');
     return [];
   }
 
-  const output: TopLevelStatement.t[] = []
+  const output: TopLevelStatement.t[] = [];
 
-  ts.forEachChild(sourceFile, untypedNode => {
+  ts.forEachChild(sourceFile, (untypedNode) => {
     console.log(untypedNode.kind);
     switch (untypedNode.kind) {
       case ts.SyntaxKind.FunctionDeclaration:
         const node = untypedNode as ts.FunctionDeclaration;
         output.push({
-          type: "Definition",
-          arguments: node.parameters.map(parameter => ({name: (parameter.name as ts.Identifier).text, typ: null})),
-          body: "TODO",
-          name: node.name?.escapedText || "anonymousFunction",
+          type: 'Definition',
+          arguments: node.parameters.map((parameter) => ({
+            name: (parameter.name as ts.Identifier).text,
+            typ: null,
+          })),
+          body: 'TODO',
+          name: node.name?.escapedText || 'anonymousFunction',
           returnTyp: null,
           typParameters: [],
         });
@@ -53,11 +56,15 @@ function compile(fileName: string, options: ts.CompilerOptions): TopLevelStateme
   // process.exit(exitCode);
 }
 
-console.log(JSON.stringify(
-  compile(process.argv[2], {
-    noEmitOnError: true,
-    noImplicitAny: true,
-    target: ts.ScriptTarget.ES5,
-    module: ts.ModuleKind.CommonJS
-  }), null, 2
-));
+console.log(
+  JSON.stringify(
+    compile(process.argv[2], {
+      noEmitOnError: true,
+      noImplicitAny: true,
+      target: ts.ScriptTarget.ES5,
+      module: ts.ModuleKind.CommonJS,
+    }),
+    null,
+    2,
+  ),
+);
