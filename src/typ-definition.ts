@@ -74,7 +74,7 @@ function compileSumType(typs: ReadonlyArray<ts.TypeNode>): t {
     return {
       name: nameProperty.type
         ? getStringOfLiteralType(nameProperty.type)
-        : Error.raise('UnkownConstructor', nameProperty.type, 'Missing constructor name'),
+        : Error.raise('UnkownConstructor', nameProperty, 'Missing constructor name'),
       fields: fieldProperties.map((property) => ({
         name: Identifier.compile(property.name),
         typ: property.type ? Typ.compile(property.type) : Error.raise(Typ.unit, property, 'Missing type'),
@@ -147,13 +147,12 @@ export function compileTypDefinition(typ: ts.TypeNode): t {
           'Only handle unions of strings or objects with a `type` field',
         );
       }
-    }
-    default:
-      compiledTyp;
+
       return Error.raise(
         { type: 'Synonym', typ: Typ.unit },
         compiledTyp.typ,
         'Only handle unions of strings or objects with a `type` field',
       );
+    }
   }
 }

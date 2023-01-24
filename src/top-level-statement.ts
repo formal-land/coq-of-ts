@@ -1,5 +1,3 @@
-import * as ts from 'typescript';
-import * as Error from './error';
 import * as Expression from './expression';
 import * as Typ from './typ';
 import * as TypDefinition from './typ-definition';
