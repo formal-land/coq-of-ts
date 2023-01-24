@@ -1,7 +1,7 @@
-import * as ts from "typescript";
+import * as ts from 'typescript';
 
 type State = {
-  typeChecker: ts.TypeChecker | null,
+  typeChecker: ts.TypeChecker | null;
 };
 
 export const state: State = {
