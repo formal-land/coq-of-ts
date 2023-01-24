@@ -39,5 +39,12 @@
     "useDefineForClassFields": true,
     "useUnknownInCatchVariables": true
   },
-  "exclude": ["node_modules", "types", "coverage", "dist", "test/**/*.spec.ts", "input.ts"]
+  "exclude": [
+    "node_modules",
+    "types",
+    "coverage",
+    "dist",
+    "test/**/*.spec.ts",
+    "input.ts"
+  ]
 }
