@@ -428,322 +428,272 @@ function compileStatements(statements: ts.Statement[]): t {
   );
 }
 
-export function* compileFun(
+export function compileFun(
   fun:
-    | BabelAst.FunctionDeclaration
-    | BabelAst.FunctionExpression
-    | BabelAst.ArrowFunctionExpression,
-): Monad.t<Fun> {
-  const returnTyp = fun.returnType ? fun.returnType.typeAnnotation : null;
+    | ts.FunctionDeclaration
+    | ts.FunctionExpression
+    | ts.ArrowFunction,
+): Fun {
+  const returnTyp = null /* TODO */;
 
   return {
-    arguments: yield* Monad.all(
-      fun.params.map(function*(param) {
-        switch (param.type) {
-          case "Identifier":
-            return {
-              name: param.name,
-              typ: param.typeAnnotation
-                ? yield* Typ.compile(param.typeAnnotation.typeAnnotation)
-                : null,
-            };
-          default:
-            return yield* Monad.raise<FunArgument>(
-              param,
-              "Expected simple identifier as function parameter",
-            );
-        }
-      }),
-    ),
-    body:
-      fun.body.type === "BlockStatement"
-        ? yield* compileStatements(fun.body.body)
-        : yield* compile(fun.body),
-    returnTyp: returnTyp && (yield* Typ.compile(returnTyp)),
+    arguments:
+      fun.parameters.map((parameter) =>
+        ({
+          name: Identifier.compile(parameter.name),
+          typ: null /* TODO */,
+        })),
+    body: ts.isBlock(fun.body!) ?
+      compileStatements(fun.body!.statements.slice()) :
+      compile(fun.body!),
+    returnTyp: returnTyp && Typ.compile(returnTyp),
     typParameters: fun.typeParameters
-      ? Util.filterMap(fun.typeParameters.params, param => param.name)
+      ? fun.typeParameters.map(typParameter => Identifier.compile(typParameter.name))
       : [],
   };
 }
 
-export function* compile(expression: ts.Expression): t {
-  switch (expression.type) {
-    case "ArrayExpression":
-      return {
-        type: "ArrayExpression",
-        elements: expression.elements
-          ? yield* Monad.all(
-              expression.elements.map(function*(element) {
-                if (!element) {
-                  return yield* Monad.raise<t>(
-                    expression,
-                    "Expected non-empty elements in the array",
-                  );
-                }
+function compilePrefixUnaryOperator(operator: ts.PrefixUnaryOperator): string {
+  switch (operator) {
+    case ts.SyntaxKind.PlusPlusToken:
+      return "++";
+    case ts.SyntaxKind.MinusMinusToken:
+      return "--";
+    case ts.SyntaxKind.ExclamationToken:
+      return "!";
+    case ts.SyntaxKind.TildeToken:
+      return "~";
+    case ts.SyntaxKind.PlusToken:
+      return "+";
+    case ts.SyntaxKind.MinusToken:
+      return "-";
+  }
+}
 
-                if (element.type === "SpreadElement") {
-                  return yield* Monad.raise<t>(
-                    element,
-                    "Spreads in arrays are not handled",
-                  );
-                }
+export function compile(expression: ts.Expression): t {
+  if (ts.isArrayLiteralExpression(expression)) {
+    return {
+      type: "ArrayExpression",
+      elements: expression.elements.map(element =>
+        compile(expression)),
+    };
+  }
 
-                return yield* compile(element);
-              }),
-            )
-          : /* istanbul ignore next */
-            yield* Monad.raise<t[]>(
-              expression,
-              "Unexpected empty array expression",
-            ),
-      };
-    case "ArrowFunctionExpression":
-      return {
-        type: "FunctionExpression",
-        value: yield* compileFun(expression),
-      };
-    case "BinaryExpression":
-      return {
-        type: "BinaryExpression",
-        left: yield* compile(expression.left),
-        operator: expression.operator,
-        right: yield* compile(expression.right),
-      };
-    case "BooleanLiteral":
-      return {
-        type: "Constant",
-        value: expression.value,
-      };
-    case "CallExpression":
-      return {
-        type: "CallExpression",
-        arguments: yield* Monad.all(
-          expression.arguments.map(function*(argument) {
-            switch (argument.type) {
-              case "ArgumentPlaceholder":
-                return yield* Monad.raise<t>(
-                  argument,
-                  "Unhandled partial application",
-                );
-              case "SpreadElement":
-                return yield* Monad.raise<t>(
-                  argument,
-                  "Unhandled spread parameters",
-                );
-              default:
-                return yield* compile(argument);
-            }
-          }),
-        ),
-        callee: yield* compile(expression.callee),
-      };
-    case "ConditionalExpression":
-      return {
-        type: "ConditionalExpression",
-        alternate: yield* compile(expression.alternate),
-        consequent: yield* compile(expression.consequent),
-        test: yield* compile(expression.test),
-      };
-    case "FunctionExpression":
-      return {
-        type: "FunctionExpression",
-        value: yield* compileFun(expression),
-      };
-    case "Identifier":
-      return {
-        type: "Variable",
-        name: expression.name,
-      };
-    case "LogicalExpression":
-      return {
-        type: "BinaryExpression",
-        left: yield* compile(expression.left),
-        operator: expression.operator,
-        right: yield* compile(expression.right),
-      };
-    case "MemberExpression": {
-      switch (expression.object.type) {
-        case "TypeCastExpression": {
-          const {expression: object, typeAnnotation} = expression.object;
-          const record = yield* Typ.compileIdentifier(
-            typeAnnotation.typeAnnotation,
-          );
-          const field = yield* Typ.getObjectKeyName(expression.property);
+  if (ts.isArrowFunction(expression)) {
+    return {
+      type: "FunctionExpression",
+      value: compileFun(expression),
+    };
+  }
 
-          return {
-            type: "RecordProjection",
-            field,
-            object: yield* compile(object),
-            record,
-          };
-        }
-        default:
-          return yield* Monad.raise<t>(
-            expression.object,
-            "Expected a type annotation on this object to access a member",
-          );
-      }
-    }
-    case "NullLiteral":
+  if (ts.isBinaryExpression(expression)) {
+    return {
+      type: "BinaryExpression",
+      left: compile(expression.left),
+      operator: expression.operatorToken.getText(),
+      right: compile(expression.right),
+    };
+  }
+
+  if (expression.kind === ts.SyntaxKind.FalseKeyword) {
+    return {
+      type: "Constant",
+      value: false,
+    };
+  }
+
+  if (expression.kind === ts.SyntaxKind.TrueKeyword) {
+    return {
+      type: "Constant",
+      value: true,
+    };
+  }
+
+  if (ts.isCallExpression(expression)) {
+    return {
+      type: "CallExpression",
+      arguments: expression.arguments.map(argument =>
+        compile(argument)),
+      callee: compile(expression.expression),
+    };
+  }
+
+  if (ts.isConditionalExpression(expression)) {
+    return {
+      type: "ConditionalExpression",
+      alternate: compile(expression.whenFalse),
+      consequent: compile(expression.whenTrue),
+      test: compile(expression.condition),
+    };
+  }
+
+  if (ts.isFunctionExpression(expression)) {
+    return {
+      type: "FunctionExpression",
+      value: compileFun(expression),
+    };
+  }
+
+  if (ts.isIdentifier(expression)) {
+    return {
+      type: "Variable",
+      name: expression.text,
+    };
+  }
+
+  if (ts.isPropertyAccessExpression(expression)) {
+    return {
+      type: "RecordProjection",
+      field: Identifier.compile(expression.name),
+      object: compile(expression.expression),
+      record: "TODO" /* TODO */,
+    };
+  }
+
+  if (expression.kind === ts.SyntaxKind.NullKeyword) {
+    return tt;
+  }
+
+  if (ts.isNumericLiteral(expression)) {
+    return {
+      type: "Constant",
+      value: Number(expression.text),
+    };
+  }
+
+  if (ts.isObjectLiteralExpression(expression)) {
+    if (expression.properties.length === 0) {
       return tt;
-    case "NumericLiteral":
-      return {
-        type: "Constant",
-        value: expression.value,
-      };
-    case "ObjectExpression": {
-      if (expression.properties.length === 0) {
-        return tt;
-      }
+    }
 
-      return yield* Monad.raise<t>(
+    const [names, fields, spreads] = expression.properties.reduce(
+      ([names, fields, spreads], property) => {
+        if (ts.isPropertyAssignment(property)) {
+          const name = Identifier.compile(property.name);
+
+          if (name === "type") {
+            return [
+              [...names, getStringOfStringLiteral(property.initializer)],
+              fields,
+              spreads,
+            ];
+          }
+
+          return [
+            names,
+            [...fields,({
+              name,
+              value: compile(property.initializer),
+            })],
+            spreads,
+          ];
+        }
+
+        if (ts.isShorthandPropertyAssignment(property)) {
+          const name = Identifier.compile(property.name);
+          const field: RecordField = {name, value: {type: "Variable", name}};
+
+          return [
+            names,
+            [...fields, field],
+            spreads,
+          ];
+        }
+
+        if (ts.isSpreadAssignment(property)) {
+          if (names.length !== 0 || fields.length !== 0) {
+            return Error.raise(
+              [names, fields, spreads],
+              property,
+              "Spread element must be the first element of the object",
+            );
+          }
+
+          return [
+            names,
+            fields,
+            [...spreads, compile(property.expression)],
+          ];
+        }
+
+        return Error.raise(
+          [names, fields, spreads],
+          property,
+          "Unhandled kind of property",
+        );
+      },
+      ([[], [], []] as [string[], RecordField[], t[]]),
+    );
+
+    const typName = "TODO" /* TODO */;
+
+    if (names.length >= 2) {
+      return Error.raise(
+        tt,
         expression,
-        "Unhandled object expression without type annotation",
+        "Multiple type names",
       );
     }
-    /* istanbul ignore next */
-    case "ParenthesizedExpression":
-      return yield* compile(expression.expression);
-    case "StringLiteral":
-      return {
-        type: "Constant",
-        value: expression.value,
-      };
-    case "TypeCastExpression": {
-      switch (expression.expression.type) {
-        case "ObjectExpression": {
-          const [names, fields, spreads] = yield* Monad.reduce(
-            expression.expression.properties,
-            ([[], [], []]: [string[], RecordField[], t[]]),
-            function*([names, fields, spreads], property) {
-              switch (property.type) {
-                case "ObjectMethod":
-                  return yield* Monad.raise<[*, *, *]>(
-                    property,
-                    "Object methods not handled",
-                  );
-                case "ObjectProperty": {
-                  if (property.computed) {
-                    return yield* Monad.raise<[*, *, *]>(
-                      property.key,
-                      "Unhandled computed property name",
-                    );
-                  }
 
-                  const name = yield* getObjectPropertyName(property);
-                  // Because this seems to be the case here and for
-                  // performance reasons for the type checking.
-                  const value: BabelAst.Expression = (property.value: any);
-
-                  if (name === "type") {
-                    return [
-                      [...names, yield* getStringOfStringLiteral(value)],
-                      fields,
-                      spreads,
-                    ];
-                  }
-
-                  return [
-                    names,
-                    [...fields, {name, value: yield* compile(value)}],
-                    spreads,
-                  ];
-                }
-                case "SpreadElement":
-                  if (names.length !== 0 || fields.length !== 0) {
-                    yield* Monad.raise<[*, *, *]>(
-                      property,
-                      "Spread element must be the first element of the object",
-                    );
-                  }
-
-                  return [
-                    names,
-                    fields,
-                    [...spreads, yield* compile(property.argument)],
-                  ];
-                /* istanbul ignore next */
-                default:
-                  return property;
-              }
-            },
-          );
-          const typName = yield* Typ.compileIdentifier(
-            expression.typeAnnotation.typeAnnotation,
-          );
-
-          if (names.length >= 2) {
-            return yield* Monad.raise<t>(
-              expression.expression,
-              "Ambiguous multiple `type` fields",
-            );
-          }
-          if (spreads.length >= 2) {
-            return yield* Monad.raise<t>(
-              expression.expression,
-              `At most one spread element per object is handled, found ${spreads.length}`,
-            );
-          }
-
-          if (names.length === 0) {
-            if (spreads.length === 0) {
-              return {type: "RecordInstance", record: typName, fields};
-            }
-
-            return fields.reduce(
-              (accumulator, field) => ({
-                type: "RecordUpdate",
-                field: field.name,
-                object: accumulator,
-                record: typName,
-                update: field.value,
-              }),
-              spreads[0],
-            );
-          }
-
-          if (spreads.length === 0) {
-            return {
-              type: "SumInstance",
-              constr: names[0],
-              fields,
-              sum: typName,
-            };
-          }
-
-          return yield* Monad.raise<t>(
-            expression.expression,
-            "Spread elements in sum types are not handled",
-          );
-        }
-        case "StringLiteral": {
-          const {value} = expression.expression;
-
-          return {
-            type: "EnumInstance",
-            instance: value,
-            typName: yield* Typ.compileIdentifier(
-              expression.typeAnnotation.typeAnnotation,
-            ),
-          };
-        }
-        default:
-          return {
-            type: "TypeCastExpression",
-            expression: yield* compile(expression.expression),
-            typeAnnotation: yield* Typ.compile(
-              expression.typeAnnotation.typeAnnotation,
-            ),
-          };
-      }
+    if (spreads.length >= 2) {
+      return Error.raise(
+        tt,
+        expression,
+        "Multiple spreads",
+      );
     }
-    case "UnaryExpression":
+
+    if (names.length === 0) {
+      if (spreads.length === 0) {
+        return {type: "RecordInstance", record: typName, fields};
+      }
+
+      return fields.reduce(
+        (accumulator, field) => ({
+          type: "RecordUpdate",
+          field: field.name,
+          object: accumulator,
+          record: typName,
+          update: field.value,
+        }),
+        spreads[0],
+      );
+    }
+
+    if (spreads.length === 0) {
       return {
-        type: "UnaryExpression",
-        argument: yield* compile(expression.argument),
-        operator: expression.operator,
+        type: "SumInstance",
+        constr: names[0],
+        fields,
+        sum: typName,
       };
-    default:
-      return yield* Monad.raiseUnhandled<t>(expression);
+    }
+
+    return Error.raise(
+      tt,
+      expression,
+      "Spread elements in sum types are not handled",
+    );
   }
+
+  if (ts.isStringLiteral(expression)) {
+    return {
+      type: "Constant",
+      value: expression.text,
+    };
+  }
+
+  if (ts.isPrefixUnaryExpression(expression)) {
+    return {
+      type: "UnaryExpression",
+      argument: compile(expression.operand),
+      operator: compilePrefixUnaryOperator(expression.operator),
+    };
+  }
+
+  return Error.raise(
+    tt,
+    expression,
+    "Unhandled kind of expression",
+  );
 }
