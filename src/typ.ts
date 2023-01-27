@@ -1,6 +1,7 @@
 import * as ts from 'typescript';
 import * as Doc from './doc';
 import * as Error from './error';
+import * as Global from './global';
 import * as Identifier from './identifier';
 import * as Typ from './typ';
 
@@ -224,6 +225,13 @@ export function compile(typ: ts.TypeNode): t {
       /* istanbul ignore next */
       return compiledTyp.typ;
   }
+}
+
+// Return the name of the type of a node when we need a name, for example for a record type.
+export function getTypName(node: ts.Node): string {
+  const typ = Global.getTypeChecker().getTypeAtLocation(node);
+
+  return Global.getTypeChecker().typeToString(typ);
 }
 
 export function printImplicitTyps(names: string[]): Doc.t {

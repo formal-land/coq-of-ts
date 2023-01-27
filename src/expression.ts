@@ -1,7 +1,6 @@
 import * as ts from 'typescript';
 import * as Doc from './doc';
 import * as Error from './error';
-import * as Global from './global';
 import * as Identifier from './identifier';
 import * as Typ from './typ';
 
@@ -174,7 +173,7 @@ function compileLVal(lval: ts.BindingName): LeftValue {
   }
 
   // Object pattern case
-  const typName = 'TODO: find the type of the record';
+  const typName = Typ.getTypName(lval);
   const fields = getLeftValueRecordFields(lval);
 
   return {
@@ -284,7 +283,6 @@ export function compileStatements(statements: ts.Statement[]): t {
 
       if (ts.isIdentifier(expression)) {
         const discriminantName = Identifier.compile(expression);
-        const sum = Global.state.typeChecker!.getTypeAtLocation(expression);
         const { clauses } = statement.caseBlock;
         const caseClauses = clauses.flatMap((clause) => {
           if (ts.isCaseClause(clause)) {
@@ -314,7 +312,7 @@ export function compileStatements(statements: ts.Statement[]): t {
           defaultBranch:
             defaultClauses[0] !== undefined ? compileStatements(defaultClauses[0].statements.slice()) : null,
           discriminant: compile(expression),
-          sum: `TODO: convert from ${sum}`,
+          sum: Typ.getTypName(expression),
         };
       }
 
@@ -369,7 +367,7 @@ export function compileStatements(statements: ts.Statement[]): t {
       branches: [...caseClauses, ...(accumulatedNames.length !== 0 ? [{ body: tt, names: accumulatedNames }] : [])],
       defaultBranch: defaultClauses[0] !== undefined ? compileStatements(defaultClauses[0].statements.slice()) : null,
       discriminant: compile(statement.expression),
-      typName: 'TODO find type',
+      typName: Typ.getTypName(statement.expression),
     };
   }
 
@@ -404,7 +402,7 @@ export function compileFun(fun: ts.FunctionDeclaration | ts.FunctionExpression |
   return {
     arguments: fun.parameters.map((parameter) => ({
       name: Identifier.compile(parameter.name),
-      typ: null /* TODO */,
+      typ: parameter.type ? Typ.compile(parameter.type) : null,
     })),
     body: ts.isBlock(fun.body!) ? compileStatements(fun.body!.statements.slice()) : compile(fun.body!),
     returnTyp: returnTyp && Typ.compile(returnTyp),
@@ -431,7 +429,7 @@ function compilePrefixUnaryOperator(operator: ts.PrefixUnaryOperator): string {
   }
 }
 
-export function compile(expression: ts.Expression): t {
+export function compile(expression: ts.Expression, expectedAsTyp?: ts.TypeNode): t {
   if (ts.isArrayLiteralExpression(expression)) {
     return {
       type: 'ArrayExpression',
@@ -444,6 +442,10 @@ export function compile(expression: ts.Expression): t {
       type: 'FunctionExpression',
       value: compileFun(expression),
     };
+  }
+
+  if (ts.isAsExpression(expression)) {
+    return compile(expression.expression, expression.type);
   }
 
   if (ts.isBinaryExpression(expression)) {
@@ -505,7 +507,7 @@ export function compile(expression: ts.Expression): t {
       type: 'RecordProjection',
       field: Identifier.compile(expression.name),
       object: compile(expression.expression),
-      record: 'TODO' /* TODO */,
+      record: Typ.getTypName(expression.expression),
     };
   }
 
@@ -574,7 +576,7 @@ export function compile(expression: ts.Expression): t {
       [[], [], []] as [string[], RecordField[], t[]],
     );
 
-    const typName = 'TODO'; /* TODO */
+    const typName = expectedAsTyp ? Typ.getTypName(expectedAsTyp) : Typ.getTypName(expression);
 
     if (names.length >= 2) {
       return Error.raise(tt, expression, 'Multiple type names');

@@ -7,7 +7,7 @@ import * as Program from './program';
 function compile(fileName: string, options: ts.CompilerOptions): Program.t {
   let program = ts.createProgram([fileName], options);
   const sourceFile = program.getSourceFile(fileName);
-  Global.state.typeChecker = program.getTypeChecker();
+  Global.initTypeChecker(program.getTypeChecker());
 
   if (!sourceFile) {
     console.log('Cannot compile');
@@ -16,7 +16,15 @@ function compile(fileName: string, options: ts.CompilerOptions): Program.t {
 
   const output = Program.compile(sourceFile);
 
-  console.error(Error.errors);
+  Error.errors.forEach((error) =>
+    console.error(
+      error.message,
+      error.node.getSourceFile().fileName,
+      error.node.getStart(),
+      error.node.getFullText(),
+      error.node,
+    ),
+  );
 
   return output;
 }

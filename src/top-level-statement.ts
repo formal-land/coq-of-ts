@@ -26,7 +26,7 @@ export function compile(node: ts.Statement): t[] {
     return node.declarationList.declarations.map((declaration) => ({
       type: 'Definition',
       arguments: [],
-      body: Expression.compile(declaration.initializer!),
+      body: Expression.compile(declaration.initializer!, declaration.type),
       name: Identifier.compile(declaration.name),
       returnTyp: null,
       typParameters: [],
@@ -39,12 +39,12 @@ export function compile(node: ts.Statement): t[] {
         type: 'Definition',
         arguments: node.parameters.map((parameter) => ({
           name: Identifier.compile(parameter.name),
-          typ: null,
+          typ: parameter.type ? Typ.compile(parameter.type) : null,
         })),
         body: Expression.compileStatements(node.body!.statements.slice()),
         name: node.name ? Identifier.compile(node.name) : 'anonymousFunction',
         returnTyp: null,
-        typParameters: [],
+        typParameters: node.typeParameters ? node.typeParameters.map((param) => Identifier.compile(param.name)) : [],
       },
     ];
   }

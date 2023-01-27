@@ -32,7 +32,7 @@ type Rec = {
   c: boolean;
 };
 
-const o: Rec = { a: 'hi', b: 12, c: false };
+const o = { a: 'hi', b: 12, c: false } as Rec;
 
 const hi = o.a;
 
@@ -47,7 +47,7 @@ type Enum = 'aa' | 'bb' | 'gg';
 const aa: Enum = 'aa';
 
 function getEnumIndex(e: Enum): number {
-  switch (e /* Enum */) {
+  switch (e) {
     case 'aa':
       return 0;
     case 'bb':
@@ -73,7 +73,7 @@ type Status =
 const status: Status = { type: 'Error', message: 'hi' };
 
 function getMessage(status: Status): string {
-  switch (status.type /* Status */) {
+  switch (status.type) {
     case 'Error': {
       const { message } = status;
       return message;
