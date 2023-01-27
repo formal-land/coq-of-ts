@@ -84,3 +84,15 @@ function getMessage(status: Status): string {
       return '';
   }
 }
+
+type User = {
+  isAdmin: boolean;
+};
+
+export function checkIfEnoughCredits(user: User, credits: number): boolean {
+  if (user.isAdmin) {
+    return credits >= 0;
+  }
+
+  return credits >= 1000;
+}

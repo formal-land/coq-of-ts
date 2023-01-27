@@ -393,6 +393,17 @@ export function compileStatements(statements: ts.Statement[]): t {
     };
   }
 
+  if (ts.isIfStatement(statement)) {
+    return {
+      type: 'ConditionalExpression',
+      alternate: statement.elseStatement
+        ? compileStatements([statement.elseStatement])
+        : compileStatements(statements.slice(1)),
+      consequent: compileStatements([statement.thenStatement]),
+      test: compile(statement.expression),
+    };
+  }
+
   return Error.raise(compileStatements(statements.slice(1)), statement, 'Unhandled statement');
 }
 
