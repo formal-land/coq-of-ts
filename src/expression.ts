@@ -1,6 +1,6 @@
 import * as ts from 'typescript';
+import * as Doc from './doc';
 import * as Error from './error';
-import * as Global from './global';
 import * as Identifier from './identifier';
 import * as Typ from './typ';
 
@@ -173,7 +173,7 @@ function compileLVal(lval: ts.BindingName): LeftValue {
   }
 
   // Object pattern case
-  const typName = 'TODO: find the type of the record';
+  const typName = Typ.getTypName(lval);
   const fields = getLeftValueRecordFields(lval);
 
   return {
@@ -251,7 +251,7 @@ function getFieldsDestructuringFromHeadStatement(
   return noDestructuring;
 }
 
-function compileStatements(statements: ts.Statement[]): t {
+export function compileStatements(statements: ts.Statement[]): t {
   const statement = statements[0];
 
   if (statement === undefined) {
@@ -283,7 +283,6 @@ function compileStatements(statements: ts.Statement[]): t {
 
       if (ts.isIdentifier(expression)) {
         const discriminantName = Identifier.compile(expression);
-        const sum = Global.state.typeChecker!.getTypeAtLocation(expression);
         const { clauses } = statement.caseBlock;
         const caseClauses = clauses.flatMap((clause) => {
           if (ts.isCaseClause(clause)) {
@@ -313,7 +312,7 @@ function compileStatements(statements: ts.Statement[]): t {
           defaultBranch:
             defaultClauses[0] !== undefined ? compileStatements(defaultClauses[0].statements.slice()) : null,
           discriminant: compile(expression),
-          sum: `TODO: convert from ${sum}`,
+          sum: Typ.getTypName(expression),
         };
       }
 
@@ -368,7 +367,7 @@ function compileStatements(statements: ts.Statement[]): t {
       branches: [...caseClauses, ...(accumulatedNames.length !== 0 ? [{ body: tt, names: accumulatedNames }] : [])],
       defaultBranch: defaultClauses[0] !== undefined ? compileStatements(defaultClauses[0].statements.slice()) : null,
       discriminant: compile(statement.expression),
-      typName: 'TODO find type',
+      typName: Typ.getTypName(statement.expression),
     };
   }
 
@@ -403,7 +402,7 @@ export function compileFun(fun: ts.FunctionDeclaration | ts.FunctionExpression |
   return {
     arguments: fun.parameters.map((parameter) => ({
       name: Identifier.compile(parameter.name),
-      typ: null /* TODO */,
+      typ: parameter.type ? Typ.compile(parameter.type) : null,
     })),
     body: ts.isBlock(fun.body!) ? compileStatements(fun.body!.statements.slice()) : compile(fun.body!),
     returnTyp: returnTyp && Typ.compile(returnTyp),
@@ -430,7 +429,7 @@ function compilePrefixUnaryOperator(operator: ts.PrefixUnaryOperator): string {
   }
 }
 
-export function compile(expression: ts.Expression): t {
+export function compile(expression: ts.Expression, expectedAsTyp?: ts.TypeNode): t {
   if (ts.isArrayLiteralExpression(expression)) {
     return {
       type: 'ArrayExpression',
@@ -443,6 +442,10 @@ export function compile(expression: ts.Expression): t {
       type: 'FunctionExpression',
       value: compileFun(expression),
     };
+  }
+
+  if (ts.isAsExpression(expression)) {
+    return compile(expression.expression, expression.type);
   }
 
   if (ts.isBinaryExpression(expression)) {
@@ -504,7 +507,7 @@ export function compile(expression: ts.Expression): t {
       type: 'RecordProjection',
       field: Identifier.compile(expression.name),
       object: compile(expression.expression),
-      record: 'TODO' /* TODO */,
+      record: Typ.getTypName(expression.expression),
     };
   }
 
@@ -573,7 +576,7 @@ export function compile(expression: ts.Expression): t {
       [[], [], []] as [string[], RecordField[], t[]],
     );
 
-    const typName = 'TODO'; /* TODO */
+    const typName = expectedAsTyp ? Typ.getTypName(expectedAsTyp) : Typ.getTypName(expression);
 
     if (names.length >= 2) {
       return Error.raise(tt, expression, 'Multiple type names');
@@ -628,4 +631,274 @@ export function compile(expression: ts.Expression): t {
   }
 
   return Error.raise(tt, expression, 'Unhandled kind of expression');
+}
+
+export function printFunArguments(funArguments: FunArgument[]): Doc.t {
+  return funArguments.map(({ name, typ }) => [
+    Doc.line,
+    typ ? Doc.group(['(', name, Doc.line, ':', Doc.line, Typ.print(false, typ), ')']) : name,
+  ]);
+}
+
+function printCallExpression(needParens: boolean, callee: Doc.t, args: Doc.t[]): Doc.t {
+  return Doc.paren(needParens, Doc.group(Doc.indent(Doc.join(Doc.line, [callee, ...args]))));
+}
+
+export function printRecordInstance(record: string | null, fields: { name: string; value: Doc.t }[]): Doc.t {
+  return Doc.group([
+    '{|',
+    Doc.indent(
+      fields.map(({ name, value }) => [
+        Doc.line,
+        Doc.group([
+          Doc.group([record ? `${record}.${name}` : name, Doc.line, ':=']),
+          Doc.indent([Doc.line, value, ';']),
+        ]),
+      ]),
+    ),
+    Doc.line,
+    '|}',
+  ]);
+}
+
+function printLeftValue(lval: LeftValue, withQuote: boolean): Doc.t {
+  switch (lval.type) {
+    case 'Record':
+      if (lval.fields.length === 0) {
+        return ['_'];
+      }
+
+      return [
+        ...(withQuote ? ["'"] : []),
+        printRecordInstance(
+          lval.record,
+          lval.fields.map(({ name, variable }) => ({ name, value: variable })),
+        ),
+      ];
+    case 'Variable':
+      return [lval.name];
+  }
+}
+
+function printMatch(
+  discriminant: Doc.t,
+  branches: {
+    body: Doc.t;
+    patterns: {
+      fields: LeftValueRecordField[] | null;
+      name: string;
+    }[];
+  }[],
+  defaultBranch: Doc.t | null,
+  typName: string,
+): Doc.t {
+  return Doc.group([
+    Doc.group(['match', Doc.line, discriminant, Doc.line, 'with']),
+    Doc.hardline,
+    ...branches.map(({ body, patterns }) =>
+      Doc.group([
+        Doc.join(
+          Doc.line,
+          patterns.map(({ fields, name }) =>
+            Doc.group([
+              '|',
+              Doc.line,
+              `${typName}.${name}`,
+              ...(fields
+                ? [
+                    Doc.line,
+                    printLeftValue(
+                      {
+                        type: 'Record',
+                        fields,
+                        record: `${typName}.${name}`,
+                      },
+                      false,
+                    ),
+                  ]
+                : []),
+            ]),
+          ),
+        ),
+        Doc.line,
+        '=>',
+        Doc.indent([Doc.line, body]),
+        Doc.hardline,
+      ]),
+    ),
+    ...(defaultBranch
+      ? [
+          Doc.group([
+            Doc.group(['|', Doc.line, '_', Doc.line, '=>']),
+            Doc.indent([Doc.line, defaultBranch]),
+            Doc.hardline,
+          ]),
+        ]
+      : []),
+    'end',
+  ]);
+}
+
+export function print(needParens: boolean, expression: t): Doc.t {
+  switch (expression.type) {
+    case 'ArrayExpression':
+      if (expression.elements.length === 0) {
+        return '[]';
+      }
+
+      return Doc.group([
+        '[',
+        Doc.indent([
+          Doc.line,
+          Doc.join(
+            [';', Doc.line],
+            expression.elements.map((element) => print(false, element)),
+          ),
+        ]),
+        Doc.line,
+        ']',
+      ]);
+    case 'BinaryExpression':
+      return Doc.paren(
+        needParens,
+        Doc.group(
+          Doc.join(Doc.line, [print(true, expression.left), expression.operator, print(true, expression.right)]),
+        ),
+      );
+    case 'CallExpression':
+      return printCallExpression(
+        needParens,
+        print(true, expression.callee),
+        expression.arguments.map((argument) => print(true, argument)),
+      );
+    case 'ConditionalExpression': {
+      return Doc.paren(
+        needParens,
+        Doc.group([
+          Doc.group(['if', Doc.line, print(false, expression.test), Doc.line, 'then']),
+          Doc.indent([Doc.line, print(false, expression.consequent)]),
+          Doc.line,
+          'else',
+          Doc.indent([Doc.line, print(false, expression.alternate)]),
+        ]),
+      );
+    }
+    case 'Constant':
+      return JSON.stringify(expression.value);
+    case 'EnumDestruct': {
+      const { branches, defaultBranch, discriminant, typName } = expression;
+
+      return printMatch(
+        print(false, discriminant),
+        branches.map(({ body, names }) => ({
+          body: print(false, body),
+          patterns: names.map((name) => ({ fields: null, name })),
+        })),
+        defaultBranch && print(false, defaultBranch),
+        typName,
+      );
+    }
+    case 'EnumInstance':
+      return `${expression.typName}.${expression.instance}`;
+    case 'FunctionExpression':
+      return Doc.paren(
+        needParens,
+        Doc.group([
+          Doc.group([
+            'fun',
+            Doc.indent([
+              ...(expression.value.typParameters.length !== 0
+                ? [Doc.line, Typ.printImplicitTyps(expression.value.typParameters)]
+                : []),
+              printFunArguments(expression.value.arguments),
+            ]),
+            Doc.line,
+            '=>',
+          ]),
+          Doc.indent([Doc.line, print(false, expression.value.body)]),
+        ]),
+      );
+    case 'Let':
+      return Doc.group([
+        Doc.group(['let', Doc.line, printLeftValue(expression.lval, true), Doc.line, ':=']),
+        Doc.indent([Doc.line, print(false, expression.value)]),
+        Doc.line,
+        'in',
+        Doc.hardline,
+        print(false, expression.body),
+      ]);
+    case 'RecordInstance':
+      return printRecordInstance(
+        expression.record,
+        expression.fields.map(({ name, value }) => ({
+          name,
+          value: print(false, value),
+        })),
+      );
+    case 'RecordProjection':
+      return Doc.group([
+        print(true, expression.object),
+        Doc.softline,
+        '.(',
+        Doc.indent(Doc.group([Doc.softline, expression.record, '.', expression.field])),
+        Doc.softline,
+        ')',
+      ]);
+    case 'RecordUpdate':
+      return printCallExpression(needParens, `${expression.record}.set_${expression.field}`, [
+        print(true, expression.object),
+        print(true, expression.update),
+      ]);
+    case 'SumDestruct': {
+      const { branches, defaultBranch, discriminant, sum } = expression;
+
+      return printMatch(
+        print(false, discriminant),
+        branches.map(({ body, fields, name }) => ({
+          body: print(false, body),
+          patterns: [{ fields, name }],
+        })),
+        defaultBranch && print(false, defaultBranch),
+        sum,
+      );
+    }
+    case 'SumInstance': {
+      const name = `${expression.sum}.${expression.constr}`;
+
+      return Doc.paren(
+        needParens,
+        Doc.group([
+          name,
+          Doc.line,
+          ...(expression.fields.length !== 0
+            ? [
+                printRecordInstance(
+                  name,
+                  expression.fields.map(({ name, value }) => ({
+                    name,
+                    value: print(false, value),
+                  })),
+                ),
+              ]
+            : ['tt']),
+        ]),
+      );
+    }
+    case 'TypeCastExpression':
+      return Doc.group([
+        '(',
+        Doc.softline,
+        print(true, expression.expression),
+        Doc.line,
+        ':',
+        Doc.line,
+        Typ.print(false, expression.typeAnnotation),
+        Doc.softline,
+        ')',
+      ]);
+    case 'UnaryExpression':
+      return Doc.paren(needParens, Doc.group([expression.operator, Doc.line, print(true, expression.argument)]));
+    case 'Variable':
+      return expression.name;
+  }
 }

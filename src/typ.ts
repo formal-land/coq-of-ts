@@ -1,5 +1,7 @@
 import * as ts from 'typescript';
+import * as Doc from './doc';
 import * as Error from './error';
+import * as Global from './global';
 import * as Identifier from './identifier';
 import * as Typ from './typ';
 
@@ -211,16 +213,91 @@ export function compile(typ: ts.TypeNode): t {
           'This kind of object type is not handled outside of type definitions',
         );
       }
+
       if (ts.isStringLiteral(compiledTyp.typ)) {
         return Error.raise(unit, compiledTyp.typ, 'String literal types are not handled outside of type definitions');
       }
+
       if (ts.isUnionTypeNode(compiledTyp.typ)) {
         return Error.raise(unit, compiledTyp.typ, 'Union types are not handled outside of type definitions');
       }
+
       /* istanbul ignore next */
       return compiledTyp.typ;
-    /* istanbul ignore next */
-    default:
-      return compiledTyp;
   }
+}
+
+// Return the name of the type of a node when we need a name, for example for a record type.
+export function getTypName(node: ts.Node): string {
+  const typ = Global.getTypeChecker().getTypeAtLocation(node);
+
+  return Global.getTypeChecker().typeToString(typ);
+}
+
+export function printImplicitTyps(names: string[]): Doc.t {
+  return Doc.group([
+    '{',
+    Doc.indent([Doc.softline, Doc.join(Doc.line, names), Doc.line, Doc.group([':', Doc.line, 'Type'])]),
+    Doc.softline,
+    '}',
+  ]);
+}
+
+export function print(needParens: boolean, typ: t): Doc.t {
+  switch (typ.type) {
+    case 'Function':
+      return Doc.paren(
+        needParens,
+        Doc.group([
+          ...(typ.typParams.length !== 0
+            ? [
+                Doc.group([
+                  'forall',
+                  Doc.line,
+                  '{',
+                  Doc.indent(
+                    Doc.group([
+                      Doc.softline,
+                      ...typ.typParams.map((typParam) => [typParam, Doc.line]),
+                      Doc.group([':', Doc.line, 'Type']),
+                    ]),
+                  ),
+                  Doc.softline,
+                  '}',
+                  ',',
+                  Doc.line,
+                ]),
+              ]
+            : []),
+          ...typ.params.map((param) => Doc.group([print(true, param), Doc.line, '->', Doc.line])),
+          print(true, typ.returnTyp),
+        ]),
+      );
+    case 'Implicit':
+      return Doc.group('_');
+    case 'Tuple':
+      switch (typ.params.length) {
+        case 0:
+          return Doc.group('unit');
+        default:
+          return Doc.paren(
+            needParens,
+            Doc.group(
+              Doc.join(
+                [Doc.line, '*', Doc.line],
+                typ.params.map((param) => print(true, param)),
+              ),
+            ),
+          );
+      }
+    case 'Variable':
+      return Doc.paren(
+        needParens && typ.params.length !== 0,
+        Doc.group([typ.name, Doc.indent(typ.params.map((param) => [Doc.line, print(true, param)]))]),
+      );
+  }
+}
+
+export function printReturnTyp(typ: t | null, nextToken: Doc.t): Doc.t {
+  return Doc.group([...(typ ? [':', Doc.line, print(false, typ), Doc.line] : []), nextToken]);
 }
