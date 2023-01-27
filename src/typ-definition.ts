@@ -1,5 +1,7 @@
 import * as ts from 'typescript';
+import * as Doc from './doc';
 import * as Error from './error';
+import * as Expression from './expression';
 import * as Identifier from './identifier';
 import * as Typ from './typ';
 
@@ -88,7 +90,7 @@ function compileSumType(typs: ReadonlyArray<ts.TypeNode>): t {
   };
 }
 
-export function compileTypDefinition(typ: ts.TypeNode): t {
+export function compile(typ: ts.TypeNode): t {
   const compiledTyp = Typ.compileIfPlainTyp(typ);
 
   switch (compiledTyp.type) {
@@ -154,5 +156,121 @@ export function compileTypDefinition(typ: ts.TypeNode): t {
         'Only handle unions of strings or objects with a `type` field',
       );
     }
+  }
+}
+
+function printModule(name: string, doc: Doc.t): Doc.t {
+  return Doc.group([
+    Doc.group(['Module', Doc.line, name, '.']),
+    Doc.indent([Doc.hardline, doc]),
+    Doc.group([Doc.hardline, 'End', Doc.line, name, '.']),
+  ]);
+}
+
+function printRecord(fields: { name: string; typ: Typ.t }[], withSetters: boolean): Doc.t {
+  return [
+    Doc.group(['Record', Doc.line, 't', Doc.line, ':=', Doc.line, '{']),
+    Doc.indent(
+      fields.map(({ name, typ }) => [
+        Doc.hardline,
+        name,
+        Doc.line,
+        ':',
+        Doc.line,
+        Typ.print(false, typ),
+        Doc.softline,
+        ';',
+      ]),
+    ),
+    Doc.hardline,
+    '}.',
+    ...(withSetters
+      ? [
+          Doc.hardline,
+          Doc.join(
+            Doc.hardline,
+            fields.map(({ name }) =>
+              Doc.group([
+                Doc.group(['Definition', Doc.line, `set_${name}`]),
+                Doc.indent(Doc.group([Doc.line, 'r', Doc.line, name, Doc.line, ':='])),
+                Doc.indent([
+                  Doc.line,
+                  Expression.printRecordInstance(
+                    null,
+                    fields.map((field) => ({
+                      name: field.name,
+                      value: field.name === name ? name : `r.(${field.name})`,
+                    })),
+                  ),
+                  '.',
+                ]),
+              ]),
+            ),
+          ),
+        ]
+      : []),
+  ];
+}
+
+function printDefineTypeAsModule(name: string): Doc.t {
+  return Doc.group(['Definition', Doc.line, name, Doc.line, ':=', Doc.line, `${name}.t`, '.']);
+}
+
+export function print(name: string, typDefinition: t): Doc.t {
+  switch (typDefinition.type) {
+    case 'Enum': {
+      const module = printModule(name, [
+        Doc.group(['Inductive', Doc.line, 't', Doc.line, ':=']),
+        ...typDefinition.names.map((name) => Doc.group([Doc.hardline, '|', Doc.line, name])),
+        '.',
+      ]);
+
+      return [module, Doc.hardline, printDefineTypeAsModule(name)];
+    }
+    case 'Record':
+      return [printModule(name, printRecord(typDefinition.fields, true)), Doc.hardline, printDefineTypeAsModule(name)];
+    case 'Sum': {
+      const module = printModule(name, [
+        Doc.join(
+          [Doc.hardline, Doc.hardline],
+          [
+            ...typDefinition.constructors.flatMap((constructor) =>
+              constructor.fields.length !== 0
+                ? [printModule(constructor.name, printRecord(constructor.fields, false))]
+                : [],
+            ),
+            Doc.group([
+              Doc.group(['Inductive', Doc.line, 't', Doc.line, ':=']),
+              ...typDefinition.constructors.map(({ name, fields }) =>
+                Doc.group([
+                  Doc.hardline,
+                  '|',
+                  Doc.line,
+                  name,
+                  Doc.line,
+                  '(',
+                  Doc.softline,
+                  '_',
+                  Doc.line,
+                  ':',
+                  Doc.line,
+                  ...(fields.length !== 0 ? [name, '.t'] : ['unit']),
+                  Doc.softline,
+                  ')',
+                ]),
+              ),
+              '.',
+            ]),
+          ],
+        ),
+      ]);
+
+      return [module, Doc.hardline, printDefineTypeAsModule(name)];
+    }
+    case 'Synonym':
+      return Doc.group([
+        Doc.group(['Definition', Doc.line, name, Doc.line, ':', Doc.line, 'Type', Doc.line, ':=']),
+        Doc.indent([Doc.line, Typ.print(false, typDefinition.typ), '.']),
+      ]);
   }
 }
